@@ -1,0 +1,6 @@
+Payments for Hrithik (brise.management@gmail.com):
+1. ID: undefined | Status: Success | Amount: 1048.7 | Date: Wed Feb 25 2026 03:11:27 GMT+0530 (India Standard Time) | OrderId: 699e1b07ea9550a50bde4d0f
+
+Subscriptions for Hrithik:
+1. ID: sub_SK8KBx9xa26oVu | Status: created | NextCharge: Tue Mar 24 2026 05:30:00 GMT+0530 (India Standard Time) | Link: https://rzp.io/rzp/2YQrWAM
+2. ID: sub_SK8QFYzIRVCtlg | Status: active | NextCharge: null | Link: https://rzp.io/rzp/XZP14eoD

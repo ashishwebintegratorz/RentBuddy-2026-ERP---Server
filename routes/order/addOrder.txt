@@ -1,0 +1,57 @@
+🧩 Flow Summary Diagram
+
+1. Cart Items   → Validate + Decrement Stocks
+2. Order        → Create & Store Basic Info
+3. Barcodes     → Reuse if available OR generate + save
+4. Invoice      → Create with same Order ID
+5. Payment      → Linked to Invoice
+6. Rental       → Track lifecycle (rentedDate → rentedTill)
+7. Cart         → Cleared
+8. Cashfree     → Plan + Subscription (if Recurring)
+9. Order        → Final Save with all references
+10. Respond     → With IDs, authLink, barcodes
+
+TEST API
+
+api
+POST  http://localhost:4000/api/orders/createOrder
+headers 
+Authorization : <token>
+body
+{
+  "billingInfo": {
+    "firstName": "John",
+    "lastName": "Doe",
+    "phone": "9999999999",
+    "emiDate": "15th",
+    "cashfreeOrderId": "CF_TEST_ORDER_002",
+    "address": "123 Main Street",
+    "landmark": "Landmark X",
+    "town": "Town Y",
+    "state": "State Z",
+    "postcode": "123456"
+  },
+  "items": [
+    {
+      "productId": "6777b17f9cd58778ffacfe63",
+      "productSerialId": "SERIAL_CORAL_01",
+      "productName": "Coral Queen Size Bed",
+      "quantity": 1,
+      "price": 683,
+      "rentalDuration": "3 months"
+    }
+  ],
+  "isPackage": false,
+  "totalAmount": 683,
+  "paymentType": "Recurring Payment",
+  "paymentMethod": "UPI",
+  "orderNotes": "Deliver quickly",
+  "depositAmount": 1200,
+  "cgst": 68.3,
+  "igst": 0,
+  "productRent": 683,
+  "isFirstMonth": true,
+  "refundableDeposit": 1200,
+  "couponCode": null,
+  "couponDiscount": 0
+}

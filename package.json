@@ -1,0 +1,39 @@
+{
+  "name": "rent-buddy",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon server.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": ""
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bcrypt": "^5.1.1",
+    "body-parser": "^1.20.3",
+    "bwip-js": "^4.6.0",
+    "cashfree-pg": "^4.2.3",
+    "cloudinary": "^2.3.0",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.4.3",
+    "mongoose-sequence": "^6.0.1",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^6.9.16",
+    "nodemon": "^3.1.10",
+    "path": "^0.12.7",
+    "pdf-lib": "^1.17.1",
+    "pdf-poppler": "^0.2.1",
+    "pdf-to-png-converter": "^3.2.0",
+    "pdf2pic": "^3.1.1",
+    "razorpay": "^2.9.6",
+    "uuid": "^11.1.0"
+  }
+}
