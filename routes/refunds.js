@@ -113,7 +113,22 @@ router.post('/create-refund', verifyToken, async (req, res) => {
 
                 // 🔹 Professional Cleanup: Free up barcodes and rentals for full refund
                 try {
-                    // 1. Mark barcodes as available
+                    // 1. Terminate Subscription on Razorpay & local DB
+                    const cancellationHelper = require('../utils/cancellationHelper');
+                    if (orderDoc.subscriptionId) {
+                        try {
+                            const cancelResult = await cancellationHelper.cancelSubscription(
+                                orderDoc.subscriptionId, 
+                                `Full Refund for Order ${orderDoc.orderId}`,
+                                true // Cancel immediately
+                            );
+                            console.log(`[REFUND] Subscription ${orderDoc.subscriptionId} cancelled:`, cancelResult.success ? 'Success' : 'Failed');
+                        } catch (subCancelErr) {
+                            console.error(`[REFUND] Fatal error cancelling subscription ${orderDoc.subscriptionId}:`, subCancelErr.message);
+                        }
+                    }
+
+                    // 2. Mark barcodes as available
                     if (orderDoc.barcodeIds && orderDoc.barcodeIds.length > 0) {
                         await Barcode.updateMany(
                             { _id: { $in: orderDoc.barcodeIds } },
@@ -122,7 +137,7 @@ router.post('/create-refund', verifyToken, async (req, res) => {
                         console.log(`[REFUND] Freed ${orderDoc.barcodeIds.length} barcodes for order ${orderDoc.orderId}`);
                     }
 
-                    // 2. Mark rentals as cancelled
+                    // 3. Mark rentals as cancelled
                     await Rental.updateMany(
                         { orderId: orderDoc._id },
                         { $set: { rentalStatus: 'completed', subscriptionStatus: 'cancelled', paymentStatus: 'Refunded' } }

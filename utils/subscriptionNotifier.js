@@ -24,6 +24,21 @@ ${payLink}
 — Rentbuddy Team`;
       break;
 
+    case "PRE_DUE":
+      subject = "Upcoming Payment Reminder - 2 Days to go";
+      message = `Hello ${user.name || ""},
+
+This is a friendly reminder that your monthly Rentbuddy subscription payment will be due in 2 days.
+
+💰 Amount: ₹${sub.planAmount / 100}
+📅 Due Date: ${(data instanceof Date ? data : new Date(data)).toLocaleDateString("en-IN")}
+
+Please ensure your account has sufficient balance for auto-debit or pay manually:
+${payLink}
+
+— Rentbuddy Team`;
+      break;
+
     case "GRACE":
       subject = "Payment Pending – Grace Period";
       message = `⚠️ PAYMENT REMINDER

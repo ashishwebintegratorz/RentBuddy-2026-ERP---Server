@@ -51,14 +51,28 @@ function addMonthsSafely(date, months) {
 }
 
 // Helper to sync Subscription and Rental dates
+// Helper to sync Subscription and Rental dates
 async function syncSubscriptionAndRentalDates(subDoc, nextChargeAt) {
   if (!subDoc) return;
+
+  // 🛡️ STATUS GUARD: Don't reactivate cancelled/expired/halted subscriptions via stray webhooks
+  if (['cancelled', 'expired', 'halted'].includes(subDoc.status)) {
+    console.log(`[Webhook Sync] Skipping reactivation for ${subDoc.subscriptionId} as it is ${subDoc.status}`);
+    return;
+  }
   
   if (nextChargeAt) {
     subDoc.nextChargeAt = nextChargeAt;
   } else {
-    // Manual advancement if no date provided from gateway
-    subDoc.nextChargeAt = addMonthsSafely(subDoc.nextChargeAt || new Date(), 1);
+    // Manual advancement if no date provided from gateway (usually Payment Links)
+    // 🛡️ Robust Advancement: Ensure nextChargeAt is always in the future relative to the previous date
+    const currentNext = subDoc.nextChargeAt || new Date();
+    subDoc.nextChargeAt = addMonthsSafely(currentNext, 1);
+    
+    // If the date is STILL in the past (user was >1 month behind), advance it to a future cycle
+    while (subDoc.nextChargeAt < new Date()) {
+      subDoc.nextChargeAt = addMonthsSafely(subDoc.nextChargeAt, 1);
+    }
   }
   
   subDoc.status = 'active';
@@ -85,6 +99,17 @@ async function syncSubscriptionAndRentalDates(subDoc, nextChargeAt) {
     for (const rental of rentals) {
       rental.nextBillingDate = subDoc.nextChargeAt;
       rental.paymentsMade = (rental.paymentsMade || 0) + 1;
+      
+      // Update individual EMI history for reconciliation if needed
+      if (rental.emiHistory) {
+         rental.emiHistory.push({
+            dueDate: subDoc.nextChargeAt, // Approximation of the cycle just paid
+            method: 'auto',
+            status: 'success',
+            processedAt: new Date()
+         });
+      }
+
       if (rental.paymentsMade >= (rental.totalPaymentsRequired || 0)) {
         rental.rentalStatus = 'completed';
         rental.subscriptionStatus = 'completed';
@@ -131,7 +156,8 @@ router.post('/', async (req, res) => {
     console.log('[WEBHOOK RECEIVED] =>', type);
 
     /* ======================= ONE-TIME PAYMENT SUCCESS ======================= */
-    if (type === 'payment.captured' || type === 'payment.authorized') {
+    // Note: We only process 'payment.captured' to avoid double fulfilment from 'authorized'
+    if (type === 'payment.captured') {
       const p = payload.payment?.entity;
       if (p) {
         const amount = (p.amount || 0) / 100;
@@ -186,8 +212,6 @@ router.post('/', async (req, res) => {
           // 🚀 Trigger fulfilment from webhook to be safe
           await fulfilOrderAfterPayment(p.order_id);
         }
-
-        // 🏆 Fulfilment and order update handled above with $addToSet
       }
     }
 
@@ -321,12 +345,15 @@ router.post('/', async (req, res) => {
           ? new Date(payment.created_at * 1000)
           : new Date();
 
-        // 👇 month bucket for this charge
-        const forMonth = new Date(
-          paymentDate.getFullYear(),
-          paymentDate.getMonth(),
-          1
-        );
+        // 👇 Determine which month bucket this charge is for
+        // BUG FIX: Use subDoc's next billing cycle if available to correctly tag the 'forMonth'
+        const subDoc = await Subscription.findOne({
+          subscriptionId: payment.subscription,
+        });
+
+        const forMonth = subDoc && subDoc.nextChargeAt 
+          ? new Date(subDoc.nextChargeAt.getFullYear(), subDoc.nextChargeAt.getMonth(), 1)
+          : new Date(paymentDate.getFullYear(), paymentDate.getMonth(), 1);
 
         const exists = await Payment.findOne({
           transactionId: payment.id,
@@ -422,10 +449,7 @@ router.post('/', async (req, res) => {
           console.error('[Webhook] Failed to create recurring invoice:', invErr);
         }
 
-        // AUTO REACTIVATE SUBSCRIPTION
-        const subDoc = await Subscription.findOne({
-          subscriptionId: payment.subscription,
-        });
+        // AUTO REACTIVATE SUBSCRIPTION & SYNC
         const nextChargeAt = subscriptionEntity?.next_charge_at
           ? new Date(subscriptionEntity.next_charge_at * 1000)
           : null;

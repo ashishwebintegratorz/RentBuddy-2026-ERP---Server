@@ -2,185 +2,137 @@ const express = require('express');
 const verifyToken = require('../../middlewares/verifyToken');
 const router = express.Router();
 const Rental = require('../../models/rentalProducts');
-const Order = require('../../models/orders')
-const Payment = require('../../models/payment')
-const mongoose = require('mongoose')
+const Order = require('../../models/orders');
+const Payment = require('../../models/payment');
+const Subscription = require('../../models/subscription');
+const mongoose = require('mongoose');
 const dotenv = require('dotenv');
-const axios = require('axios');
-
+const notify = require('../../utils/subscriptionNotifier');
 
 dotenv.config();
 
-// Cashfree API credentials
-const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID_TEST;
-const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY_TEST;
-const CF_BASE_URL = 'https://sandbox.cashfree.com/pg'
-const SUBSCRIPTION_URL = 'https://sandbox.cashfree.com/api/v2/subscriptions';
-
-// Helper function to get cashfree headers
-const getCashfreeHeaders = () => {
-    return {
-        'x-api-version': '2025-01-01',
-        'X-Client-Id': CASHFREE_APP_ID,
-        'X-Client-Secret': CASHFREE_SECRET_KEY,
-        'Content-Type' : 'application/json'
-    }
-}
-
-
-// Helper function to add months to a date safely
-function addMonthsSafely(date, months) {
+// Helper to add months safely while preserving the billing day
+function addMonthsSafely(date, months, originalDay) {
   const result = new Date(date);
-  const expectedMonth = (result.getMonth() + months) % 12;
-  result.setMonth(result.getMonth() + months);
+  const currentMonth = result.getMonth();
+  result.setMonth(currentMonth + months);
   
-  // Handle month overflow (e.g., Jan 31 + 1 month = Feb 28/29)
-  if (result.getMonth() !== expectedMonth) {
-    result.setDate(0); // Set to last day of previous month
+  // Enforce original billing day (e.g., if we were on the 31st and advanced to Feb, set to 28th)
+  // If originalDay is provided, we use it as the target DAY.
+  if (originalDay) {
+    result.setDate(originalDay);
+    if (result.getMonth() !== (currentMonth + months) % 12) {
+       result.setDate(0); // Roll back to last day of the intended month
+    }
+  } else {
+    if (result.getMonth() !== (currentMonth + months) % 12) {
+      result.setDate(0);
+    }
   }
-  
   return result;
 }
 
+/**
+ * MANUAL PAYMENT: Records a payment (cash/bank transfer) for a specific rental.
+ * - Updates Rental record (paymentsMade, emiHistory)
+ * - Updates Subscription record (nextChargeAt, lastPaymentAt)
+ * - Keeps Admin Dashboard compatibility
+ */
+router.post('/', verifyToken, async (req, res) => {
+  try {
+    const { rentalId, amount, note } = req.body;
+    const { userId } = req.user;
 
-// Helper function to format date to YYYY-MM-DD
-function formatDate(date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
+    // 1. Verify rental
+    const rental = await Rental.findOne({ _id: rentalId, userId })
+      .populate('productId')
+      .populate('orderId');
 
-
-router.post('/', verifyToken, async(req, res) => {
-    try {
-        const { rentalId, amount } = req.body;
-        const { userId } = req.user;
-
-        // 1. Verify rental and get subscription details
-        const rental = await Rental.findOne({_id: rentalId, userId})
-            .populate('productId')
-            .populate('orderId');
-
-        if (!rental) { return res.status(404).json({ message: "Rental not found" })}
-
-        // 2. Check if rental is already completed
-        if (rental.rentalStatus === 'completed') {
-            return res.status(400).json({ message: "Rental is already completed" });
-        }
- 
-        // 3. Validate payment amount (rent + 18% tax)
-        const expectedAmount = (rental.productId.rentalPrice * 1.18).toFixed(2);
-        if (parseFloat(amount) !== parseFloat(expectedAmount)) {
-        return res.status(400).json({
-            message: `Payment amount must be ₹${expectedAmount} (rent + tax)`,
-            expectedAmount
-        });
-        }
-
-        // Check if all payments are already made
-        if (rental.paymentsMade >= rental.totalPaymentsRequired) {
-            return res.status(400).json({ error: "All payments already completed" });
-        }
-
-        // 4. Calculate next billing date after skipping one month
-        const billingDay = parseInt(rental.emiDate.match(/\d+/)[0]);
-        const today = new Date();
-        let nextBillingDate = new Date(today);
-        nextBillingDate.setDate(billingDay)
-
-        if (today.getDate() >= billingDay) {
-            nextBillingDate = addMonthsSafely(nextBillingDate, 1);
-        }
-
-        // Adjust for months with fewer days
-        const lastDay = new Date(
-            nextBillingDate.getFullYear(),
-            nextBillingDate.getMonth() + 1,
-            0
-        ).getDate();
-        
-        if (billingDay > lastDay) {
-            nextBillingDate.setDate(lastDay);
-        }
-
-        const formattedDate = formatDate(nextBillingDate);
-
-        
-
-        // 5. Update subscription next charge date
-        if(rental.subscriptionId &&  rental.subscriptionStatus === 'active' && rental.paymentsMade < rental.totalPaymentsRequired) {
-            try {
-                const nextUnpaidMonth = new Date(rental.rentStartDate);
-                nextUnpaidMonth.setMonth(nextUnpaidMonth.getMonth() + rental.paymentsMade);
-                nextUnpaidMonth.setDate(rental.originalBillingDay);
-
-                // Update subscription to skip the paid month
-                await cashfree.updateSubscription(rental.subscriptionId, {
-                    next_charge_date: nextUnpaidMonth.toISOString().split('T')[0]
-                });
-            } catch (error) {
-                console.error('Error Updating subscription:', error);
-                throw new Error('Failed to update subscription');
-            }
-        }
-
-        // 6. Process payment (simulated)
-        const transactionId = `txn_${Date.now()}`;
-        const paymentMonth = await rental.recordManualPayment(transactionId);
-
-        // 7. Create payment record
-        const newPayment = new Payment({
-            orderId: `MANUAL-${Date.now()}`,
-            rentalId: rental._id,
-            invoiceId: rental.orderId.invoiceIds[0],
-            paymentMethod: 'manual',
-            paymentType: 'Recurring Payment',
-            amount: amount,
-            status: 'success',
-            transactionId: transactionId,
-            forMonth: paymentMonth
-        });
-
-        await newPayment.save();
-
-        // // 7. Update rental record
-        // rental.paymentsMade += 1;
-        // rental.paymentHistory.push({
-        //     date: new Date(),
-        //     amount: amount,
-        //     method: 'manual',
-        //     transactionId: newPayment.transactionId,
-        //     isEarlyPayment: true,
-        //     forMonth: new Date()
-        // });
-        
-        rental.nextBillingDate = nextBillingDate;
-        await rental.save();
-
-        
-        // If this was the final payment
-        if (rental.paymentsMade === rental.totalPaymentsRequired) {
-            // Cancel subscription if exists
-            if (rental.subscriptionId) {
-                await cashfree.cancelSubscription(rental.subscriptionId);
-            }
-
-            res.json({
-                message: "Manual payment recorded",
-                paymentsMade: rental.paymentsMade,
-                remainingPayments: rental.totalPaymentsRequired - rental.paymentsMade,
-                nextAutoPaymentDate: rental.nextBillingDate
-            });
-
-        }
-    }catch(error){
-        console.error("Manual payment error:", error);
-        res.status(500).json({ 
-            message: error.response?.data?.message || "Payment processing failed",
-            error: error.message 
-        });
+    if (!rental) {
+      return res.status(404).json({ message: "Rental record not found" });
     }
+
+    if (rental.rentalStatus === 'completed') {
+      return res.status(400).json({ message: "Rental is already completed" });
+    }
+
+    if (rental.paymentsMade >= rental.totalPaymentsRequired) {
+      return res.status(400).json({ message: "All payments already completed for this rental" });
+    }
+
+    const now = new Date();
+    const cycleMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // 2. Process manual payment via model helper
+    const transactionId = `MANUAL-${Date.now()}`;
+    const paymentPeriod = await rental.recordManualPayment(transactionId);
+
+    // 3. Create Payment document
+    const newPayment = await Payment.create({
+      orderId: rental.orderId?.orderId || `MANUAL-${Date.now()}`,
+      rentalId: rental._id,
+      userId: userId,
+      paymentMethod: 'Manual',
+      paymentType: 'Recurring Payment',
+      amount: String(amount || (rental.productId?.rentalPrice * 1.18).toFixed(2)),
+      paymentStatus: 'Success',
+      transactionId: transactionId,
+      forMonth: paymentPeriod,
+      note: note || "Manual payment recorded"
+    });
+
+    // 4. SYNC WITH SUBSCRIPTION (CRITICAL FIX)
+    if (rental.subscriptionId) {
+      const sub = await Subscription.findOne({ subscriptionId: rental.subscriptionId });
+      if (sub) {
+        sub.status = "active";
+        sub.lastPaymentAt = now;
+        sub.missedPayments = 0;
+        sub.graceUntil = null;
+
+        // Advance nextChargeAt by 1 month, respecting the original billing day
+        const billingDay = rental.originalBillingDay || new Date(rental.rentedDate).getDate();
+        sub.nextChargeAt = addMonthsSafely(sub.nextChargeAt || now, 1, billingDay);
+
+        // Reset notification flags for the new cycle
+        sub.notifiedDue = false;
+        sub.notifiedGrace = false;
+        sub.notifiedStrict = false;
+        sub.notifiedOnFailure = false;
+        
+        // Mark as notified for this cycle so cron doesn't double-task today
+        const dueZero = new Date(sub.nextChargeAt);
+        dueZero.setHours(0, 0, 0, 0);
+        sub.lastNotifiedCycle = dueZero;
+
+        await sub.save();
+
+        // 📣 Notify customer
+        await notify(sub, sub.userId, "MANUAL_SKIP", sub.nextChargeAt).catch(e => console.error("Notification failed", e));
+      }
+    }
+
+    // 5. Update Rental next billing date to stay in sync
+    const billingDay = rental.originalBillingDay || new Date(rental.rentedDate).getDate();
+    rental.nextBillingDate = addMonthsSafely(rental.nextBillingDate || now, 1, billingDay);
+    await rental.save();
+
+    return res.json({
+      success: true,
+      message: "Manual payment recorded and subscription synced",
+      paymentsMade: rental.paymentsMade,
+      remainingPayments: rental.totalPaymentsRequired - rental.paymentsMade,
+      nextBillingDate: rental.nextBillingDate
+    });
+
+  } catch (error) {
+    console.error("Manual payment logic error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Payment processing failed",
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

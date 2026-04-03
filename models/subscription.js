@@ -16,7 +16,7 @@ const subscriptionSchema = new mongoose.Schema({
   shortUrl: { type: String },
 
   // App-level status
-  status: { type: String, enum: ['created', 'active', 'past_due', 'expired', 'cancelled'], default: 'created' },
+  status: { type: String, enum: ['created', 'active', 'past_due', 'expired', 'cancelled', 'halted'], default: 'created' },
 
   // Missed payment tracking
   missedPayments: { type: Number, default: 0 },

@@ -20,6 +20,21 @@ const deleteOrder = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
+    // 1️⃣ Terminate Subscription on Razorpay & local DB (Before deleting models)
+    if (order.subscriptionId) {
+      try {
+        const cancellationHelper = require('../../utils/cancellationHelper');
+        await cancellationHelper.cancelSubscription(
+          order.subscriptionId, 
+          `Order ${order.orderId} Deleted by Admin`,
+          true // Cancel immediately
+        );
+        console.log(`[DELETE ORDER] Subscription ${order.subscriptionId} cancelled for order ${order.orderId}`);
+      } catch (subCancelErr) {
+        console.error(`[DELETE ORDER] Error cancelling subscription ${order.subscriptionId}:`, subCancelErr.message);
+      }
+    }
+
     // 2️⃣ Free barcodes (ObjectId match)
     const barcodes = await Barcode.find({
       "currentRental.orderID": order._id,

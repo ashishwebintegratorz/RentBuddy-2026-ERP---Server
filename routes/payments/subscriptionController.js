@@ -46,6 +46,17 @@ exports.cancelSubscription = async (req, res) => {
     subDoc.notifiedOnExpiry = false;
 
     await subDoc.save();
+ 
+    // 4️⃣ Sync Related Rentals
+    try {
+      const Rental = require("../../models/rentalProducts");
+      await Rental.updateMany(
+        { subscriptionId: subDoc.subscriptionId },
+        { $set: { subscriptionStatus: "cancelled" } }
+      );
+    } catch (rentalErr) {
+      console.error("❌ Rental Sync (Cancel) Error:", rentalErr);
+    }
 
     return res.json({
       success: true,

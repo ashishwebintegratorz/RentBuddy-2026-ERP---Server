@@ -23,6 +23,11 @@ const getTemplate = (type, data) => {
       title = "Payment Due Today";
       statusText = "Payment Due";
       break;
+    case 'PRE_DUE':
+      themeColor = colors.primary;
+      title = "Payment Due in 2 Days";
+      statusText = "Upcoming Payment";
+      break;
     case 'GRACE':
       themeColor = colors.warning;
       title = "Payment Grace Period";
