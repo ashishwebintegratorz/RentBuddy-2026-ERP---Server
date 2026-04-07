@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+console.log('✅ Payments Router Loaded');
 const addPayments = require('./addPayments')
 const getPayments = require('./getPayments')
 const recurringPayments = require('./recurringPayments')
@@ -26,6 +27,8 @@ router.use('/razorpay/webhook', express.raw({ type: 'application/json' }), razor
 
 // Special Routes 
 // These routes handle specific subscription-related actions
+console.log('✅ Mounting /continue subscription routes');
+router.use('/continue', require('./continueSubscription'));
 router.use('/skip-month', subscriptionSkipMonthRoute);
 router.use('/strict-reminder', strictReminderRoute);
 

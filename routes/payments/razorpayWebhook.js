@@ -189,6 +189,8 @@ router.post('/', async (req, res) => {
         }
 
         const noteOrder = p.notes?.orderId || p.notes?.order_id;
+        const isExtension = p.notes?.type === 'extension';
+
         if (noteOrder) {
           await Order.findOneAndUpdate(
             { orderId: noteOrder },
@@ -198,8 +200,10 @@ router.post('/', async (req, res) => {
               $addToSet: { paymentIds: newPaymentId }
             }
           );
-          // 🚀 Trigger fulfilment from webhook to be safe
-          await fulfilOrderAfterPayment(noteOrder);
+          // 🚀 Trigger fulfilment from webhook ONLY IF NOT an extension
+          if (!isExtension) {
+            await fulfilOrderAfterPayment(noteOrder);
+          }
         } else if (p.order_id) {
           await Order.findOneAndUpdate(
             { razorpayOrderId: p.order_id },
@@ -209,8 +213,120 @@ router.post('/', async (req, res) => {
               $addToSet: { paymentIds: newPaymentId }
             }
           );
-          // 🚀 Trigger fulfilment from webhook to be safe
-          await fulfilOrderAfterPayment(p.order_id);
+          // 🚀 Trigger fulfilment from webhook ONLY IF NOT an extension
+          if (!isExtension) {
+            await fulfilOrderAfterPayment(p.order_id);
+          }
+        }
+
+        // --- 🚀 NEW: SUBSCRIPTION EXTENSION HANDLER 🚀 ---
+        if (p.notes?.type === 'extension') {
+          const rid = p.notes.rentalId;
+          const exm = parseInt(p.notes.extensionMonths || 0);
+          const mpp = parseInt(p.notes.missedPaymentsPaid || 0);
+
+          const rentalDoc = await Rental.findOne({ rentalId: rid });
+          if (rentalDoc) {
+            const currentTill = rentalDoc.rentedTill || new Date();
+            rentalDoc.rentedTill = addMonthsSafely(currentTill, exm);
+            rentalDoc.totalPaymentsRequired = (rentalDoc.totalPaymentsRequired || 0) + exm;
+            
+            // 🔥 Correct Payment Tracking:
+            // If it's a recurring conversion, only 1 month was paid upfront.
+            // If it's a full upfront extension, all 'exm' months were paid.
+            const isRecurringConversion = p.notes?.isRecurring === 'true' || p.notes?.isRecurring === true;
+            const actualPaidMonths = isRecurringConversion ? 1 : exm;
+            rentalDoc.paymentsMade = (rentalDoc.paymentsMade || 0) + (actualPaidMonths + mpp);
+
+            // Record this upfront payment in history
+            rentalDoc.paymentHistory.push({
+              date: new Date(),
+              amount: (p.amount / 100),
+              method: 'manual',
+              transactionId: p.id,
+              forMonth: new Date() 
+            });
+
+            // Update status if it's now completed
+            if (rentalDoc.paymentsMade >= (rentalDoc.totalPaymentsRequired || 0)) {
+              rentalDoc.rentalStatus = 'completed';
+              rentalDoc.subscriptionStatus = 'completed';
+            }
+
+            await rentalDoc.save();
+            console.log(`[Extension Webhook] Rental ${rid} extended by ${exm} months. Payments updated.`);
+
+            // --- 📄 GENERATE EXTENSION INVOICE 📄 ---
+            try {
+              const originalOrder = await Order.findOne({ 
+                $or: [{ _id: rentalDoc.orderId }, { orderId: rentalDoc.orderId }] 
+              });
+
+              if (originalOrder) {
+                const invoiceItems = (originalOrder.items || []).map(item => ({
+                   itemType: item.itemType || 'product',
+                   productId: item.productId,
+                   packageId: item.packageId,
+                   quantity: item.quantity,
+                   price: (p.amount / 100), // Total extension cost
+                   productSerialId: item.productSerialId,
+                   serialNumber: item.serialNumber,
+                   rentalDuration: `${exm} Months (Extension)`,
+                   productName: `${item.productName || 'Subscription'} - Extension`
+                }));
+
+                const extensionInvoice = new Invoice({
+                   userId: originalOrder.userId,
+                   userEmail: originalOrder.billingInfo?.email || originalOrder.userId?.email || 'no-email@rentbuddy.in',
+                   billingInfo: originalOrder.billingInfo,
+                   items: invoiceItems,
+                   totalAmount: (p.amount / 100),
+                   depositAmount: 0,
+                   paymentType: 'Cumulative Payment',
+                   paymentMethod: p.method || 'razorpay',
+                   orderId: originalOrder.orderId,
+                   orderInternalId: originalOrder._id
+                });
+
+                await extensionInvoice.save();
+                
+                // Link Invoice to Payment
+                const paymentDocId = exists?._id || newPaymentId;
+                if (paymentDocId) {
+                  await Payment.findByIdAndUpdate(paymentDocId, { invoiceId: extensionInvoice._id });
+                }
+                console.log(`[Extension Webhook] Generated extension invoice ${extensionInvoice.invoice_number}`);
+              }
+            } catch (invErr) {
+              console.error('[Extension Webhook] Failed to generate invoice:', invErr);
+            }
+
+            // --- 🔄 NEW: CONVERSION HANDLING 🔄 ---
+            // If this was a "Conversion to Recurring", link the new subscriptionId to the rental
+            if (p.notes?.conversionSubscriptionId) {
+              rentalDoc.subscriptionId = p.notes.conversionSubscriptionId;
+              rentalDoc.paymentMode = 'Recurring Payment';
+              console.log(`[Extension Webhook] Rental ${rid} converted to Recurring. Linked to ${p.notes.conversionSubscriptionId}`);
+            }
+
+            // Reset linked subscription record to 'active' if it was past_due
+            if (rentalDoc.subscriptionId) {
+              await Subscription.findOneAndUpdate(
+                { subscriptionId: rentalDoc.subscriptionId },
+                {
+                  $set: {
+                    status: 'active',
+                    missedPayments: 0,
+                    graceUntil: null,
+                    notifiedOnFailure: false,
+                    oneTimePaymentLink: null,
+                    oneTimePaymentLinkId: null
+                  }
+                }
+              );
+              console.log(`[Extension Webhook] Subscription ${rentalDoc.subscriptionId} reset to active.`);
+            }
+          }
         }
       }
     }

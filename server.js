@@ -12,6 +12,12 @@ require('./cron/subscriptionReminder.cron');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// ✅ REQUEST LOGGER (Add this to see all requests)
+app.use((req, res, next) => {
+  console.log(`[DEBUG] ${req.method} ${req.url}`);
+  next();
+});
+
 // ✅ CORS
 const corsOptions = {
   origin: [
@@ -69,4 +75,5 @@ mongoose
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`✅ DEBUG: Request logging is ACTIVE.`);
 });
