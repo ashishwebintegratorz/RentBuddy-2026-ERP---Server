@@ -121,58 +121,15 @@ async function calculateMonthlyRate(rentalIdOrOrderId) {
 router.post('/estimate', verifyToken, async (req, res) => {
   console.log('HIT: POST /api/payments/continue/estimate', req.body);
   try {
-    const { rentalId, orderId, extensionMonths = 1, type = 'Recurring' } = req.body;
-    
-    // 1. Get base monthly rate
+    const { rentalId, orderId } = req.body;
     const rate = await calculateMonthlyRate(rentalId || orderId);
+    
     if (!rate) {
       return res.status(404).json({ success: false, message: 'Rental or Order not found' });
     }
 
-    // 2. Determine if there are missed payments if subId is available
-    let missed = 0;
-    const Rental = require('../../models/rentalProducts');
-    const Subscription = require('../../models/subscription');
-    
-    let rental = await Rental.findOne({ 
-      $or: [{ rentalId }, { orderId: orderId }] 
-    });
-
-    if (rental && rental.subscriptionId) {
-      const subDoc = await Subscription.findOne({ subscriptionId: rental.subscriptionId });
-      if (subDoc) {
-        missed = subDoc.missedPayments || 0;
-      }
-    }
-
-    // 3. For 'Full' type, return totals for the duration + missed
-    if (type === 'Full') {
-      const totalMonths = parseInt(extensionMonths) + missed;
-      return res.json({
-        success: true,
-        data: {
-          ...rate,
-          baseRate: rate.baseRate * totalMonths,
-          taxRate: rate.taxRate * totalMonths,
-          totalRate: rate.totalRate * totalMonths,
-          isTotal: true,
-          extensionMonths: parseInt(extensionMonths),
-          missedPayments: missed
-        }
-      });
-    }
-
-    // 4. Default to monthly rate (standard recurring behavior)
-    return res.json({ 
-      success: true, 
-      data: { 
-        ...rate, 
-        isTotal: false, 
-        extensionMonths: 1 
-      } 
-    });
+    return res.json({ success: true, data: rate });
   } catch (err) {
-    console.error('[Estimate Error]:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -185,7 +142,6 @@ router.post('/', verifyToken, async (req, res) => {
   console.log('HIT: POST /api/payments/continue', req.body);
   try {
     const { subscriptionId, rentalId, orderId, extensionMonths, type } = req.body;
-    const userId = req.user.userId || req.user.id || req.user._id;
 
     if (!extensionMonths || isNaN(extensionMonths) || extensionMonths <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid extension months' });
@@ -268,7 +224,7 @@ router.post('/', verifyToken, async (req, res) => {
       // CASE B: Conversion (No existing subscription) -> Create New Plan & Subscription
       else {
         const User = require('../../models/auth');
-        const userDoc = await User.findById(userId).lean();
+        const userDoc = await User.findById(req.user.id || req.user._id).lean();
         const userName = userDoc?.username || 'Customer';
         const userEmail = userDoc?.email || 'no-email@rentbuddy.in';
         const userPhone = userDoc?.phone || '';
@@ -322,7 +278,7 @@ router.post('/', verifyToken, async (req, res) => {
         await Subscription.create({
           subscriptionId: newSubscription.id,
           orderId: rental.orderId, // ID from rental
-          userId: userId,
+          userId: req.user.id || req.user._id,
           planId: createdPlan.id,
           planAmount: monthlyRecurringPaise,
           currency: rateDetails.currency,
@@ -377,6 +333,7 @@ router.post('/', verifyToken, async (req, res) => {
 
       // Create Razorpay Checkout Order
       const User = require('../../models/auth');
+      const userId = req.user.userId || req.user.id || req.user._id;
       console.log('[Extension Checkout] Finding user:', userId);
       const userDoc = await User.findById(userId).lean();
 

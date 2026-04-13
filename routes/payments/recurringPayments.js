@@ -56,7 +56,7 @@ router.get('/current', verifyToken, async (req, res) => {
             )
             : null);
 
-        const cycleStatus = getSubscriptionStatus(nextChargeAtDate, hasPaidThisCycle ? { _id: 'dummy' } : null);
+        const cycleStatus = getSubscriptionStatus(nextChargeAtDate, hasPaidThisCycle ? { _id: 'dummy' } : null).toLowerCase().replace(' ', '_');
 
         // attach order if available
         let orderDoc = null;
@@ -89,12 +89,20 @@ router.get('/current', verifyToken, async (req, res) => {
       })
     );
 
+    // Filter out rows representing Abandoned/Failed/Pending Initial Checkouts, and Ghost Orders
+    const validRows = rows.filter(r => {
+      if (!r.order) return false; // If the parent Order is entirely missing/deleted from the DB, throw out the ghost subscription
+      if (r.order.status === 'Cancelled' || r.order.status === 'Pending') return false;
+      if (r.order.paymentStatus === 'Failed' || r.order.paymentStatus === 'Pending' || r.order.paymentStatus === 'Processing Authorization') return false;
+      return true;
+    });
+
     res.json({
       success: true,
       monthStart: start,
       monthEnd: end,
-      total: rows.length,
-      data: rows,
+      total: validRows.length,
+      data: validRows,
     });
   } catch (err) {
     console.error('[GET /payments/recurringPayments/current] error:', err);
