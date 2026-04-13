@@ -35,9 +35,8 @@ async function verifyAndProcessPayment(paymentData) {
         rental.rentalStatus = 'completed';
         rental.subscriptionStatus = 'completed';
         
-        if (rental.subscriptionId) {
-            await cashfree.cancelSubscription(rental.subscriptionId);
-        }
+        // Auto-subscription cancellation for completion would go here for Razorpay if needed
+        // but currently handled via other flows.
     }
 
     await rental.save();

@@ -294,7 +294,8 @@ router.get("/subscriptions", async (req, res) => {
     // Aggregated stats
     const countsByCycle = {
       paid: 0,
-      not_due_yet: 0,
+      upcoming: 0,
+      due_today: 0,
       in_grace: 0,
       overdue: 0,
       unknown: 0,
@@ -302,7 +303,8 @@ router.get("/subscriptions", async (req, res) => {
 
     const amountByCycle = {
       paid: 0,
-      not_due_yet: 0,
+      upcoming: 0,
+      due_today: 0,
       in_grace: 0,
       overdue: 0,
       unknown: 0,
@@ -311,7 +313,8 @@ router.get("/subscriptions", async (req, res) => {
     // Optionally build lists of users per cycle status
     const examplesByCycle = {
       paid: [],
-      not_due_yet: [],
+      upcoming: [],
+      due_today: [],
       in_grace: [],
       overdue: [],
       unknown: [],

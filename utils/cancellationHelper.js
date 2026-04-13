@@ -20,7 +20,9 @@ async function cancelSubscription(subscriptionId, reason = 'Admin Action', cance
         // 1. Cancel on Razorpay
         // Razorpay API: POST /subscriptions/:id/cancel
         try {
-            razorpayResult = await razorpay.subscriptions.cancel(subscriptionId, cancelImmediately);
+            // cancel_at_cycle_end: true (1) means end of cycle, false (0) means immediate.
+            // Our helper parameter is 'cancelImmediately', so we pass the inverse.
+            razorpayResult = await razorpay.subscriptions.cancel(subscriptionId, !cancelImmediately);
             console.log(`[CANCELLATION HELPER] Razorpay cancellation successful for ${subscriptionId}`);
         } catch (rzpErr) {
             // If subscription is already cancelled or not found on Razorpay, we still want to sync our DB
@@ -34,12 +36,15 @@ async function cancelSubscription(subscriptionId, reason = 'Admin Action', cance
             { 
                 $set: { 
                     status: 'cancelled',
+                    cancelledAt: new Date(),
+                    nextChargeAt: null,
+                    graceUntil: null,
                     notifiedDue: false,
                     notifiedGrace: false,
                     notifiedStrict: false,
                     notifiedOnFailure: false,
                     notifiedTwoDaysBefore: false,
-                    graceUntil: null
+                    notifiedOnExpiry: false
                 } 
             },
             { new: true }

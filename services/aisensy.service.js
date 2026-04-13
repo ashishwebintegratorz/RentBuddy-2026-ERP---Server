@@ -68,4 +68,66 @@ const sendWhatsAppOTP = async (phone, otp) => {
     }
 };
 
-module.exports = { sendWhatsAppOTP };
+/**
+ * Sends a generic WhatsApp campaign using AI Sensy API
+ * @param {string} phone - Recipient phone number
+ * @param {string} campaignName - The name of the campaign/template
+ * @param {Array<string>} templateParams - Parameters for the template
+ * @param {string} userName - Optional user name for tracking
+ */
+const sendWhatsAppCampaign = async (phone, campaignName, templateParams, userName = "RentBuddy User") => {
+    if (!AISENSY_API_KEY) {
+        console.error("AI Sensy API Key is missing in .env");
+        throw new Error("AI Sensy configuration missing");
+    }
+
+    if (!campaignName) {
+        console.error("AI Sensy Campaign Name is missing for this call");
+        return;
+    }
+
+    // Ensure phone has country code (default to 91 if 10 digits)
+    let formattedPhone = phone;
+    if (phone && phone.length === 10) {
+        formattedPhone = `91${phone}`;
+    } else if (phone && phone.startsWith('+')) {
+        formattedPhone = phone.substring(1);
+    } else if (!phone) {
+        console.error("AI Sensy: No phone number provided");
+        return;
+    }
+
+    const data = {
+        apiKey: AISENSY_API_KEY,
+        campaignName: campaignName,
+        destination: formattedPhone,
+        userName: userName || "RentBuddy User",
+        templateParams: templateParams,
+        source: "API",
+        media: {
+            url: "",
+            filename: ""
+        }
+    };
+
+    try {
+        const response = await axios.post('https://backend.aisensy.com/campaign/t1/api/v2', data, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.data.success) {
+            console.log(`Campaign ${campaignName} sent successfully to ${formattedPhone}`);
+            return response.data;
+        } else {
+            console.error(`AI Sensy error: ${response.data.message}`);
+            return response.data;
+        }
+    } catch (error) {
+        console.error("WhatsApp campaign send failed:", error.response?.data || error.message);
+        throw error;
+    }
+};
+
+module.exports = { sendWhatsAppOTP, sendWhatsAppCampaign };

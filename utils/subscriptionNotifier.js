@@ -1,4 +1,4 @@
-const sendWhatsApp = require("../services/whatsapp.service");
+const { sendWhatsAppCampaign } = require("../services/aisensy.service");
 const sendEmail = require("../services/email.service");
 const { getTemplate } = require("./emailTemplates");
 
@@ -82,10 +82,23 @@ Thank you for being with Rentbuddy.`;
       break;
   }
 
-  try {
-    await sendWhatsApp(user.phone, message);
-  } catch (err) {
-    console.error(`WhatsApp notification failed for ${user.phone}:`, err.message);
+  // --- AI Sensy WhatsApp Notification ---
+  const campaignName = process.env.AISENSY_REMINDER_CAMPAIGN_NAME;
+  const amountStr = (sub.planAmount / 100).toString();
+  const dueDateStr = (data instanceof Date ? data : new Date(data || Date.now())).toLocaleDateString("en-IN");
+
+  // Template Params: {{1}}=Name, {{2}}=Amount, {{3}}=DueDate, {{4}}=Link
+  // Note: Only sending for reminders, not for MANUAL_SKIP unless a template exists
+  if (["DUE", "PRE_DUE", "GRACE", "STRICT"].includes(type)) {
+    try {
+      if (campaignName && user.phone) {
+        await sendWhatsAppCampaign(user.phone, campaignName, [user.name || "Customer", amountStr, dueDateStr, payLink], user.name);
+      } else {
+        console.warn(`[Notifier] Missing AISENSY_REMINDER_CAMPAIGN_NAME or user phone. Skipping WhatsApp.`);
+      }
+    } catch (err) {
+      console.error(`WhatsApp notification failed for ${user.phone}:`, err.message);
+    }
   }
 
   const emailHtml = getTemplate(type, {

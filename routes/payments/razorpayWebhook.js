@@ -11,6 +11,7 @@ const razorpay = require('../../services/razorpayClient');
 require('dotenv').config();
 
 const { GRACE_DAYS } = require('../../utils/subscriptionStatusHelper');
+const { cancelSubscription: unifiedCancel } = require('../../utils/cancellationHelper');
 
 function deriveInvoiceId(p) {
   if (!p) return `inv-${Date.now()}`;
@@ -440,6 +441,22 @@ router.post('/', async (req, res) => {
           { upsert: true }
         );
 
+        // 🚀 Sync related rentals on update (Billing Date / Plan ID sync)
+        if (type === 'subscription.updated' || sub.status === 'active') {
+          try {
+            const rentals = await Rental.find({ subscriptionId: sub.id });
+            for (const rental of rentals) {
+              if (nextChargeAt) rental.nextBillingDate = nextChargeAt;
+              // If plan changed, we might want to update rental.planId or rent amount here
+              // rental.rent = sub.plan?.item?.amount / 100;
+              await rental.save();
+            }
+            console.log(`[Webhook Update] Synced ${rentals.length} rentals for sub ${sub.id}`);
+          } catch (syncErr) {
+            console.error(`[Webhook Update] Rental sync failed for sub ${sub.id}:`, syncErr.message);
+          }
+        }
+
         if (sub.status === 'active' && sub.notes?.orderId) {
           await Order.findOneAndUpdate(
             { orderId: sub.notes.orderId },
@@ -678,33 +695,38 @@ router.post('/', async (req, res) => {
     if (['subscription.cancelled', 'subscription.halted'].includes(type)) {
       const sub = payload.subscription?.entity;
       if (sub) {
-        const subDoc = await Subscription.findOne({ subscriptionId: sub.id }).populate('userId');
-        if (subDoc) {
-          subDoc.status = sub.status;
-          subDoc.mandateStatus = 'cancelled';
+        console.log(`[Webhook] Remote cancellation received for ${sub.id}. Syncing via helper.`);
+        try {
+          // Use unified helper for the heavy lifting (Syncs DB, Rentals, Resets flags)
+          const result = await unifiedCancel(sub.id, `Razorpay Event: ${type}`, true);
           
-          // Generate fallback link since mandate is gone
-          try {
-            const plink = await razorpay.paymentLink.create({
-              amount: subDoc.planAmount,
-              currency: subDoc.currency || "INR",
-              description: `Payment for cancelled mandate - Sub ${sub.id}`,
-              customer: {
-                name: subDoc.userId?.name || "Customer",
-                email: subDoc.userId?.email || "no-email@rentbuddy.in",
-                contact: subDoc.userId?.phone,
-              },
-              notes: {
-                subscriptionId: sub.id,
-                type: "mandate_cancelled_fallback"
-              }
-            });
-            subDoc.oneTimePaymentLink = plink.short_url;
-            subDoc.oneTimePaymentLinkId = plink.id;
-          } catch (plErr) {
-            console.error("Link generation on cancellation failed:", plErr);
+          if (result.success) {
+            // Optional: Generate fallback link if needed after mandate is gone
+            // Note: If you want to keep the fallback link logic from before:
+            const subDoc = await Subscription.findOne({ subscriptionId: sub.id }).populate('userId');
+            if (subDoc && type === 'subscription.halted') { // Usually only needed for halted
+                 try {
+                  const plink = await razorpay.paymentLink.create({
+                    amount: subDoc.planAmount,
+                    currency: subDoc.currency || "INR",
+                    description: `Payment for halted mandate - Sub ${sub.id}`,
+                    customer: {
+                      name: subDoc.userId?.name || "Customer",
+                      email: subDoc.userId?.email || "no-email@rentbuddy.in",
+                      contact: subDoc.userId?.phone,
+                    },
+                    notes: { subscriptionId: sub.id, type: "mandate_halted_fallback" }
+                  });
+                  subDoc.oneTimePaymentLink = plink.short_url;
+                  subDoc.oneTimePaymentLinkId = plink.id;
+                  await subDoc.save();
+                } catch (plErr) {
+                  console.error("Link generation on cancellation failed:", plErr);
+                }
+            }
           }
-          await subDoc.save();
+        } catch (err) {
+          console.error(`[Webhook] Fatal error in remote cancellation sync for ${sub.id}:`, err.message);
         }
       }
     }

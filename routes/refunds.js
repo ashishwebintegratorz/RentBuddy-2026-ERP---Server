@@ -137,10 +137,10 @@ router.post('/create-refund', verifyToken, async (req, res) => {
                         console.log(`[REFUND] Freed ${orderDoc.barcodeIds.length} barcodes for order ${orderDoc.orderId}`);
                     }
 
-                    // 3. Mark rentals as cancelled
+                    // 3. Mark rentals as Refunded (Helper handles 'cancelled' status, we add 'Refunded' paymentStatus)
                     await Rental.updateMany(
                         { orderId: orderDoc._id },
-                        { $set: { rentalStatus: 'completed', subscriptionStatus: 'cancelled', paymentStatus: 'Refunded' } }
+                        { $set: { rentalStatus: 'completed', paymentStatus: 'Refunded' } }
                     );
 
                     // 3. Sync Stock for each product in the order
