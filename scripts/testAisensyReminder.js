@@ -12,7 +12,10 @@ async function test() {
     const campaignName = process.env.AISENSY_REMINDER_CAMPAIGN_NAME;
     
     // Params: {{1}}=Name, {{2}}=Amount, {{3}}=DueDate, {{4}}=Link
-    const params = ["Test Customer", "499", "25-04-2026", "https://rentbuddy.in/pay/test"];
+    // Using current date logic similar to notifier
+    const now = new Date();
+    const dueDateStr = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`;
+    const params = ["Test Customer", "499", dueDateStr, "https://rentbuddy.in/pay/test"];
     
     console.log("--- AI Sensy Test ---");
     console.log(`Target Phone: ${phone}`);

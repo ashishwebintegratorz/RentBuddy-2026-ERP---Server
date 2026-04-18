@@ -33,6 +33,11 @@ const getTemplate = (type, data) => {
       title = "Payment Grace Period";
       statusText = "Action Required";
       break;
+    case 'GRACE_FINAL':
+      themeColor = colors.danger;
+      title = "Final Notice: Payment Grace Period Ending";
+      statusText = "Urgent Action Required";
+      break;
     case 'STRICT':
       themeColor = colors.danger;
       title = "Service Interruption Alert";

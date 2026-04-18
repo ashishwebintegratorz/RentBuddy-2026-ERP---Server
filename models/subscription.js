@@ -31,6 +31,7 @@ const subscriptionSchema = new mongoose.Schema({
   // High-priority flags for cron monitoring
   notifiedDue: { type: Boolean, default: false },
   notifiedGrace: { type: Boolean, default: false },
+  notifiedGraceFinal: { type: Boolean, default: false },
   notifiedStrict: { type: Boolean, default: false },
   lastNotifiedCycle: { type: Date }, // Stores the due date (nextChargeAt) of the last notified cycle
 

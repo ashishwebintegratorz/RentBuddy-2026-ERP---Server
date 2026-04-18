@@ -40,15 +40,31 @@ ${payLink}
       break;
 
     case "GRACE":
-      subject = "Payment Pending – Grace Period";
+      subject = "Payment Pending – Grace Period Started";
       message = `⚠️ PAYMENT REMINDER
 
 Your Rentbuddy subscription payment is still pending.
 
-⏳ Grace period ends today.
+Your subscription is now in a grace period. Please complete payment within the next few days to avoid service interruption.
+
 💰 Amount: ₹${sub.planAmount / 100}
 
-Please complete payment immediately:
+Please complete payment:
+${payLink}
+
+— Rentbuddy Team`;
+      break;
+
+    case "GRACE_FINAL":
+      subject = "Final Notice: Payment Grace Period Ending Today";
+      message = `⚠️ FINAL PAYMENT REMINDER
+
+This is your final notice. Your Rentbuddy subscription grace period ends TODAY.
+To avoid service interruption, please complete your payment immediately.
+
+💰 Amount: ₹${sub.planAmount / 100}
+
+Pay now:
 ${payLink}
 
 — Rentbuddy Team`;
@@ -85,11 +101,14 @@ Thank you for being with Rentbuddy.`;
   // --- AI Sensy WhatsApp Notification ---
   const campaignName = process.env.AISENSY_REMINDER_CAMPAIGN_NAME;
   const amountStr = (sub.planAmount / 100).toString();
-  const dueDateStr = (data instanceof Date ? data : new Date(data || Date.now())).toLocaleDateString("en-IN");
+  
+  // Format date as DD-MM-YYYY to match the user's template
+  const rawDate = data instanceof Date ? data : new Date(data || Date.now());
+  const dueDateStr = `${String(rawDate.getDate()).padStart(2, '0')}-${String(rawDate.getMonth() + 1).padStart(2, '0')}-${rawDate.getFullYear()}`;
 
   // Template Params: {{1}}=Name, {{2}}=Amount, {{3}}=DueDate, {{4}}=Link
   // Note: Only sending for reminders, not for MANUAL_SKIP unless a template exists
-  if (["DUE", "PRE_DUE", "GRACE", "STRICT"].includes(type)) {
+  if (["DUE", "PRE_DUE", "GRACE", "GRACE_FINAL", "STRICT"].includes(type)) {
     try {
       if (campaignName && user.phone) {
         await sendWhatsAppCampaign(user.phone, campaignName, [user.name || "Customer", amountStr, dueDateStr, payLink], user.name);

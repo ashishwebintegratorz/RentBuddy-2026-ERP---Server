@@ -51,9 +51,10 @@ cron.schedule("0 10 * * *", async () => {
 
         if (hasPaidCurrentCycle) {
           // Reset flags if payment cleared for this cycle
-          if (sub.notifiedDue || sub.notifiedGrace || sub.notifiedStrict || sub.notifiedTwoDaysBefore) {
+          if (sub.notifiedDue || sub.notifiedGrace || sub.notifiedGraceFinal || sub.notifiedStrict || sub.notifiedTwoDaysBefore) {
             sub.notifiedDue = false;
             sub.notifiedGrace = false;
+            sub.notifiedGraceFinal = false;
             sub.notifiedStrict = false;
             sub.notifiedTwoDaysBefore = false;
             await sub.save();
@@ -61,17 +62,22 @@ cron.schedule("0 10 * * *", async () => {
           continue;
         }
 
-        // 🏁 RE-ARM notifications if we have transitioned to a NEW cycle
+        // 🏁 RE-ARM notifications and RESET links if we have transitioned to a NEW cycle
         const lastNotified = sub.lastNotifiedCycle ? new Date(sub.lastNotifiedCycle) : null;
-        if (lastNotified && getZeroTime(lastNotified).getTime() !== dueZero.getTime()) {
+        if (!lastNotified || getZeroTime(lastNotified).getTime() !== dueZero.getTime()) {
            sub.notifiedDue = false;
            sub.notifiedGrace = false;
+           sub.notifiedGraceFinal = false;
            sub.notifiedStrict = false;
            sub.notifiedTwoDaysBefore = false;
+           
+           // CRITICAL: Reset the payment link when moving to a new cycle 
+           // This prevents reusing the 'initial setup' link which includes security deposits.
            sub.oneTimePaymentLink = null;
            sub.oneTimePaymentLinkId = null;
            sub.lastNotifiedCycle = dueZero;
            await sub.save();
+           console.log(`[Cron] Cycle reset for sub ${sub.subscriptionId} to ${dueZero.toDateString()}`);
         }
 
         const graceUntil = new Date(dueZero);
@@ -93,10 +99,15 @@ cron.schedule("0 10 * * *", async () => {
             notificationType = 'DUE';
         }
         else if (currentStatus === 'In Grace') {
-            // Notify on first day of grace OR last day of grace
-            if ((todayZero.getTime() === graceStart.getTime() || todayZero.getTime() === graceUntil.getTime()) && !sub.notifiedGrace) {
+            // Day 1 of grace
+            if (todayZero.getTime() === graceStart.getTime() && !sub.notifiedGrace) {
                 notificationType = 'GRACE';
             }
+            // Last day of grace
+            else if (todayZero.getTime() === graceUntil.getTime() && !sub.notifiedGraceFinal) {
+                notificationType = 'GRACE_FINAL';
+            }
+
             // Update status to reflect late payment
             if (sub.status !== 'past_due') {
                 sub.status = 'past_due';
@@ -141,8 +152,13 @@ cron.schedule("0 10 * * *", async () => {
           if (notificationType === 'PRE_DUE') sub.notifiedTwoDaysBefore = true;
           if (notificationType === 'DUE') sub.notifiedDue = true;
           if (notificationType === 'GRACE') sub.notifiedGrace = true;
+          if (notificationType === 'GRACE_FINAL') {
+              sub.notifiedGraceFinal = true;
+              sub.notifiedGrace = true;
+          }
           if (notificationType === 'STRICT') {
               sub.notifiedStrict = true;
+              sub.notifiedGraceFinal = true;
               sub.notifiedGrace = true;
               sub.notifiedDue = true;
           }
