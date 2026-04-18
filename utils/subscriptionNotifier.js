@@ -21,8 +21,6 @@ Your monthly Rentbuddy subscription payment is due today.
 Pay now to avoid late issues:
 ${payLink}
 
-(If you have already paid for this cycle, kindly ignore this message)
-
 — Rentbuddy Team`;
       break;
 
@@ -37,8 +35,6 @@ This is a friendly reminder that your monthly Rentbuddy subscription payment wil
 
 Please ensure your account has sufficient balance for auto-debit or pay manually:
 ${payLink}
-
-(If you have already paid for this cycle, kindly ignore this message)
 
 — Rentbuddy Team`;
       break;
@@ -56,8 +52,6 @@ Your subscription is now in a grace period. Please complete payment within the n
 Please complete payment:
 ${payLink}
 
-(If you have already paid for this cycle, kindly ignore this message)
-
 — Rentbuddy Team`;
       break;
 
@@ -73,8 +67,6 @@ To avoid service interruption, please complete your payment immediately.
 Pay now:
 ${payLink}
 
-(If you have already paid for this cycle, kindly ignore this message)
-
 — Rentbuddy Team`;
       break;
 
@@ -89,8 +81,6 @@ This is not acceptable.
 
 Immediate payment required to continue service:
 ${payLink}
-
-(If you have already paid for this cycle, kindly ignore this message)
 
 — Rentbuddy Compliance Team`;
       break;
