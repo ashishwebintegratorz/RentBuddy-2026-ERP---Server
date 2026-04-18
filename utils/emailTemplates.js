@@ -169,6 +169,14 @@ const getTemplate = (type, data) => {
                       <a href="${payLink}" target="_blank" style="display: inline-block; background-color: ${colors.primary}; color: ${colors.white}; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px; transition: background-color 0.2s;">Pay Now</a>
                     </td>
                   </tr>
+                  <!-- Disclaimer -->
+                  <tr>
+                    <td align="center" style="padding-top: 15px;">
+                      <p style="margin: 0; color: ${colors.gray}; font-size: 13px; font-style: italic;">
+                        If you have already paid for this cycle, please kindly ignore this mail.
+                      </p>
+                    </td>
+                  </tr>
                   <!-- Fallback Link -->
                   <tr>
                     <td align="center" style="padding-top: 20px;">
