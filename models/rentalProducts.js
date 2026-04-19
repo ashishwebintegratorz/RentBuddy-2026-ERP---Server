@@ -139,10 +139,11 @@ RentalSchema.methods.recordManualPayment = async function (transactionId) {
     // session.startTransaction();
 
     try {
-        // Calculate which month this payment is for
+        // Calculate which month this payment is for - Standardize to 1st of the month @ 00:00:00
         const paymentMonth = new Date(this.rentedDate);
         paymentMonth.setMonth(paymentMonth.getMonth() + this.paymentsMade);
-        paymentMonth.setDate(this.originalBillingDay);
+        paymentMonth.setDate(1);
+        paymentMonth.setHours(0, 0, 0, 0);
 
         // Record in advance payments
         this.advancePayments.push({

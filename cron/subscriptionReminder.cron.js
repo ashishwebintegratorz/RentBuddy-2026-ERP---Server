@@ -4,6 +4,7 @@ const Payment = require("../models/payment");
 const notify = require("../utils/subscriptionNotifier");
 
 const { getSubscriptionStatus, GRACE_DAYS } = require("../utils/subscriptionStatusHelper");
+const Rental = require("../models/rentalProducts");
 
 // Helper to strip time for accurate date comparison
 const getZeroTime = (date) => {
@@ -23,7 +24,7 @@ cron.schedule("0 10 * * *", async () => {
 
   try {
     const subs = await Subscription.find({
-      status: { $in: ["active", "created", "past_due"] },
+      status: { $in: ["active", "created", "past_due"] }, 
       nextChargeAt: { $exists: true },
     })
       .populate("userId", "email phone name")
@@ -39,10 +40,13 @@ cron.schedule("0 10 * * *", async () => {
         const dueZero = getZeroTime(nextChargeAt);
 
         // 🔄 ROBUST PAID CHECK: Has the user paid for THIS specific cycle?
-        // Check for a Payment record where forMonth matches nextChargeAt's month bucket
+        // Match by forMonth (first of month) AND specific IDs to avoid collision between multiple subs/orders
         const cycleMonth = new Date(dueZero.getFullYear(), dueZero.getMonth(), 1);
         const paymentRecord = await Payment.findOne({
-          userId: sub.userId._id,
+          $or: [
+            { razorpaySubscriptionId: sub.subscriptionId },
+            { orderId: sub.orderId }
+          ],
           paymentStatus: "Success",
           forMonth: cycleMonth
         });
@@ -60,6 +64,20 @@ cron.schedule("0 10 * * *", async () => {
             await sub.save();
           }
           continue;
+        }
+
+        // 🛡️ PRODUCT GUARD: Only send reminders if there is actually an active rental product
+        const activeRentals = await Rental.find({
+          $or: [
+            { subscriptionId: sub.subscriptionId }, 
+            { orderId: sub.orderInternalId?._id || sub.orderInternalId }
+          ].filter(Boolean),
+          rentalStatus: 'active'
+        });
+
+        if (activeRentals.length === 0) {
+           console.log(`[Cron] Skipping sub ${sub.subscriptionId} - No active rentals found.`);
+           continue;
         }
 
         // 🏁 RE-ARM notifications and RESET links if we have transitioned to a NEW cycle

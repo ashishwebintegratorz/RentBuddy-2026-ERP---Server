@@ -2,7 +2,25 @@ const { sendWhatsAppCampaign } = require("../services/aisensy.service");
 const sendEmail = require("../services/email.service");
 const { getTemplate } = require("./emailTemplates");
 
+const Rental = require("../models/rentalProducts");
+
 module.exports = async function notify(sub, user, type, data) {
+  // 🛡️ GLOBAL PRODUCT GUARD: Prevent reminders if no active rentals exist
+  if (["DUE", "PRE_DUE", "GRACE", "GRACE_FINAL", "STRICT"].includes(type)) {
+     const activeRentals = await Rental.find({
+       $or: [
+         { subscriptionId: sub.subscriptionId }, 
+         { orderId: sub.orderInternalId?._id || sub.orderInternalId }
+       ].filter(Boolean),
+       rentalStatus: 'active'
+     });
+     
+     if (activeRentals.length === 0) {
+       console.log(`[Notifier] Safeguard triggered. Skipping ${type} for sub ${sub.subscriptionId} (No active rentals).`);
+       return;
+     }
+  }
+
   const payLink = sub.oneTimePaymentLink || sub.shortUrl || "https://rentbuddy.in/pay";
 
   let subject = "";

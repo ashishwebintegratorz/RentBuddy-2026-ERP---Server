@@ -351,6 +351,19 @@ router.post('/', async (req, res) => {
             ].filter(q => Object.values(q)[0])
           }).lean();
 
+          // 👇 Determine which month bucket this charge is for (Critical for fallback links)
+          const subDocForPay = await Subscription.findOne({
+            $or: [
+              { orderInternalId: pl.notes?.orderInternalId },
+              { subscriptionId: pl.notes?.subscriptionId },
+              { orderId: pl.notes?.orderId || pl.notes?.order_id }
+            ].filter(q => Object.values(q)[0])
+          });
+
+          const forMonth = subDocForPay && subDocForPay.nextChargeAt 
+            ? new Date(subDocForPay.nextChargeAt.getFullYear(), subDocForPay.nextChargeAt.getMonth(), 1)
+            : new Date(amount > 0 ? Date.now() : Date.now()).setHours(0,0,0,0) && new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
           const newPay = await Payment.create({
             paymentId: p.id,
             userId: relatedOrder?.userId,
@@ -364,6 +377,7 @@ router.post('/', async (req, res) => {
             amount: String(amount),
             razorpayOrderId: p.order_id,
             razorpayPaymentId: p.id,
+            forMonth: forMonth, // 🔥 Added so reminders skip this cycle
           });
           newPaymentId = newPay._id;
         } else {
