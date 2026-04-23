@@ -41,10 +41,10 @@ router.get('/current', verifyToken, async (req, res) => {
       subs.map(async (sub) => {
         // 🔄 Optimized Billing Cycle Logic (Aligned with Cron)
         const nextChargeAtDate = sub.nextChargeAt ? new Date(sub.nextChargeAt) : null;
-        const cycleStartDate = nextChargeAtDate ? new Date(nextChargeAtDate) : null;
-        if (cycleStartDate) cycleStartDate.setMonth(cycleStartDate.getMonth() - 1);
+        const dueZero = nextChargeAtDate ? new Date(nextChargeAtDate).setHours(0, 0, 0, 0) : null;
+        const lastPaidZero = sub.lastPaymentAt ? new Date(sub.lastPaymentAt).setHours(0, 0, 0, 0) : null;
 
-        const hasPaidThisCycle = sub.lastPaymentAt && cycleStartDate && sub.lastPaymentAt >= cycleStartDate;
+        const hasPaidThisCycle = lastPaidZero !== null && dueZero !== null && lastPaidZero >= dueZero;
 
         const graceUntil =
           sub.graceUntil ||

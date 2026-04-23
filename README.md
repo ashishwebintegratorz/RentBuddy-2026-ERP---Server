@@ -113,7 +113,7 @@ sequenceDiagram
 
 ### A. The "Month-Aware" Billing Window
 To handle the "Feb 28th" problem, we use the `setMonth(-1)` strategy:
-- **Calculation**: `cycleStart = nextChargeAt.setMonth(nextChargeAt.getMonth() - 1)`
+- **Calculation**: `hasPaidThisCycle = lastPaymentAt >= nextChargeAt` (comparing dates only)
 - **Leap Year Safe**: Handles February variations perfectly.
 - **28th->2nd Edge Case**: Verified. A payment on Jan 28th correctly covers a due date of Feb 2nd.
 

@@ -30,9 +30,9 @@ async function run() {
 
       if (isOverdue) {
         // Double check payment for current cycle
-        const cycleStart = nextCharge ? new Date(nextCharge) : new Date();
-        cycleStart.setMonth(cycleStart.getMonth() - 1);
-        const hasPaid = sub.lastPaymentAt && sub.lastPaymentAt >= cycleStart;
+        const dueZero = nextCharge ? new Date(nextCharge).setHours(0, 0, 0, 0) : null;
+        const lastPaidZero = sub.lastPaymentAt ? new Date(sub.lastPaymentAt).setHours(0, 0, 0, 0) : null;
+        const hasPaid = lastPaidZero !== null && dueZero !== null && lastPaidZero >= dueZero;
 
         if (hasPaid) {
             continue;
