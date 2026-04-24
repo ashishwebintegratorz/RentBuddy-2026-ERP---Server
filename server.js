@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 4000;
 
 // ✅ REQUEST LOGGER (Add this to see all requests)
 app.use((req, res, next) => {
-  console.log(`[DEBUG] ${req.method} ${req.url}`);
+  console.log(`[DEBUG] ${req.method} ${req.url} - Type: ${req.header('content-type')} - Length: ${req.header('content-length')}`);
   next();
 });
 

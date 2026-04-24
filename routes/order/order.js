@@ -11,6 +11,7 @@ const getReturnProducts = require('./getReturnedProducts');
 const documentsVerification = require('./documentsVerification');
 const getDocuments = require('./getDocuments');
 const updateDocStatus = require('./updateDocStatus');
+const updateOrderDocStatus = require('./updateOrderDocStatus');
 const mostRented = require('./most-rented');
 const {deleteOrder} = require('./deleteOrder');
 const checkSubscriptionStatus = require('./checkSubscriptionStatus');
@@ -36,5 +37,7 @@ router.use('/documentsVerification', documentsVerification);
 router.use('/getReturnProducts', getReturnProducts);
 router.use('/getDocument', getDocuments);
 router.use('/updateDocStatus', updateDocStatus);
+router.use('/updateOrderDocStatus', updateOrderDocStatus);
+router.use('/updateOrderDocuments', require('./updateOrderDocuments'));
 
 module.exports = router;

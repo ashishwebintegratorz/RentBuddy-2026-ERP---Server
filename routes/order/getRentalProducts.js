@@ -11,20 +11,20 @@ router.get('/', verifyToken, async (req, res) => {
     const rentals = await Rental.find({ userId })
       .populate('userId', 'username customerId')
       .populate('productId', 'productName productId rentalPrice') // Adjust the second parameter with the fields you want to populate from the product schema
-      .populate('orderId', 'paymentType cashfreeAuthLink paymentStatus totalAmount');
+      .populate('orderId', 'paymentType cashfreeAuthLink paymentStatus totalAmount documents documentStatus');
 
-    console.log(rentals)
     const rentalsWithPaymentInfo = await Promise.all(rentals.map(async (rental) => {
       let authLink = null;
-      let orderPaymentStatus = null; // To get the overall order payment status
-      let totalOrderAmount = null; // To get the total amount of the associated order
-      let orderPaymentType = null; // Explicitly capture paymentType
+      let orderPaymentStatus = null;
+      let totalOrderAmount = null;
+      let orderPaymentType = null;
+      let documents = null;
+      let documentStatus = null;
 
-      // If the rental is part of a recurring payment, find the associated order
-      // and fetch its Cashfree authorization link and payment status.
-      // We assume rental.orderId is populated here or added in the previous step.
-      if (rental.orderId) { // Check if orderId is populated
+      if (rental.orderId) {
         orderPaymentType = rental.orderId.paymentType;
+        documents = rental.orderId.documents;
+        documentStatus = rental.orderId.documentStatus;
         if (orderPaymentType === 'Recurring Payment') {
           authLink = rental.orderId.cashfreeAuthLink;
           orderPaymentStatus = rental.orderId.paymentStatus;
@@ -32,14 +32,14 @@ router.get('/', verifyToken, async (req, res) => {
         }
       }
 
-
       return {
-        ...rental.toObject(), // Convert Mongoose document to a plain JavaScript object
-        authLink: authLink,
-        orderPaymentStatus: orderPaymentStatus,
-        totalOrderAmount: totalOrderAmount,
-        // to explicitly pass the order's paymentType here as well
-        orderPaymentType: orderPaymentType
+        ...rental.toObject(),
+        authLink,
+        orderPaymentStatus,
+        totalOrderAmount,
+        orderPaymentType,
+        documents,
+        documentStatus
       };
     }))
     console.log(rentalsWithPaymentInfo)

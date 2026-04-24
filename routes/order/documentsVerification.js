@@ -109,15 +109,12 @@ router.post('/', verifyToken, uploadFiles, handleMulterError, async (req, res) =
             const b64 = Buffer.from(file.buffer).toString('base64');
             const dataURI = `data:${file.mimetype};base64,${b64}`;
 
+            const isPDF = file.mimetype === 'application/pdf';
             const uploadPromise = cloudinary.uploader.upload(dataURI, {
                 folder: `documents/${username}`,
-                public_id: `${fieldName}_${Date.now()}`,
-
-                // 🔧 FIX 2: correct resource type
-                resource_type: file.mimetype === 'application/pdf' ? 'raw' : 'image',
-
-                fetch_format: 'auto',
-                quality: 'auto'
+                public_id: isPDF ? `${fieldName}_${Date.now()}.pdf` : `${fieldName}_${Date.now()}`,
+                resource_type: isPDF ? 'raw' : 'auto',
+                ...(isPDF ? {} : { fetch_format: 'auto', quality: 'auto' })
             }).then(result => {
                 userDocs.documents[fieldName] = {
                     url: result.secure_url,

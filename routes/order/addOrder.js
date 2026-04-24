@@ -77,6 +77,7 @@ router.post("/", verifyToken, async (req, res) => {
       couponCode,
       couponDiscount,
       monthlyAmount,
+      documents,
     } = req.body;
 
     const userId = req.user.userId;
@@ -150,6 +151,7 @@ router.post("/", verifyToken, async (req, res) => {
       paymentIds: [],
       barcodeIds: [],
       fulfilled: false,
+      documents: documents || {},
     });
     await newOrder.save();
 

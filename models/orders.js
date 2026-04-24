@@ -106,6 +106,33 @@ const OrderSchema = new mongoose.Schema({
 
   // mark if all stock/rental/barcode/invoice work has been done
   fulfilled: { type: Boolean, default: false },
+  documents: {
+    aadhar: {
+      url: String,
+      publicId: String,
+      uploadedAt: Date
+    },
+    pan: {
+      url: String,
+      publicId: String,
+      uploadedAt: Date
+    },
+    rentAgreement: {
+      url: String,
+      publicId: String,
+      uploadedAt: Date
+    },
+    idProof: {
+      url: String,
+      publicId: String,
+      uploadedAt: Date
+    }
+  },
+  documentStatus: {
+    type: String,
+    enum: ['pending', 'verified', 'rejected'],
+    default: 'pending'
+  }
 }, {
   timestamps: true,
 });

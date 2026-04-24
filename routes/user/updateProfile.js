@@ -19,7 +19,7 @@ const upload = multer({ storage });
 // Get user profile
 router.get('/profile', verifyToken, async (req, res) => {
   try {
-    const user = await User.findOne({ email: req.user.email }).select('-password');
+    const user = await User.findById(req.user.userId).select('-password');
     res.status(200).json({ success: true, user });
   } catch (error) {
     console.error(error);
@@ -31,32 +31,28 @@ router.put('/profile', verifyToken, async (req, res) => {
   try {
     const { username, email, phone, city, pincode, address } = req.body;
 
-    const user = await User.findOne({ email: req.user.email });
+    const user = await User.findById(req.user.userId);
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    if (user.changed <= 0) {
-      return res.status(403).json({ success: false, message: 'No profile changes remaining' });
-    }
-
-    const updatedUser = await User.findOneAndUpdate(
-      { email: req.user.email },
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.userId,
       {
         username,
         email,
         phone,
         city,
         pincode,
-        address,
-        changed: user.changed - 1
+        address
       },
       { new: true }
     ).select('-password');
+
     res.status(200).json({
       success: true,
-      message: `Profile updated successfully. Remaining changes: ${updatedUser.changed}`,
+      message: `Profile updated successfully`,
       user: updatedUser
     });
   } catch (error) {
@@ -82,8 +78,8 @@ router.post('/upload-profile-pic', verifyToken, upload.single('profilePic'), asy
       uploadStream.end(req.file.buffer);
     });
 
-    const updatedUser = await User.findOneAndUpdate(
-      { email: req.user.email },
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.userId,
       { profilePic: result.secure_url },
       { new: true }
     ).select('-password');
