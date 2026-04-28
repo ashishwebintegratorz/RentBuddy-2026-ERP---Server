@@ -53,8 +53,8 @@ const RentalSchema = new mongoose.Schema({
     },
     subscriptionStatus: {  // New field to track subscription state
         type: String,
-        enum: ['active', 'cancelled', 'completed'],
-        default: 'active'
+        enum: ['pending', 'active', 'cancelled', 'completed'],
+        default: 'pending'
     },
     rentalStatus: {
         type: String,

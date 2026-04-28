@@ -75,8 +75,8 @@ router.get("/", verifyToken, async (req, res) => {
     const rawStatus = (subDoc.status || "").toLowerCase();
     let status = "pending";
 
-    // Treat both 'active' and 'authorized' as success
-    if (rawStatus === "active" || rawStatus === "authorized") {
+    // Success if explicitly active OR if isMandateAuthorized flag is set
+    if (rawStatus === "active" || subDoc.isMandateAuthorized === true || rawStatus === "authenticated") {
       status = "active";
     } else if (
       rawStatus === "past_due" ||

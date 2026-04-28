@@ -9,7 +9,7 @@ router.get("/", async (req, res) => {
   try {
     // 1️⃣ Fetch products
     const products = await Product.find()
-      .select("_id productName category image city rentalPrice stocks")
+      .select("_id productName category image city rentalPrice deposit stocks")
       .lean();
 
     // 2️⃣ Collect ObjectIds correctly

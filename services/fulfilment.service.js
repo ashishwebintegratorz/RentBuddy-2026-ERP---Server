@@ -253,6 +253,7 @@ async function fulfilOrderAfterPayment(orderIdOrInternal) {
           ? "Recurring Payment"
           : "Cumulative Payment",
         paymentStatus: "Paid",
+        subscriptionStatus: orderDoc.paymentType === "Recurring Payment" ? "pending" : "active",
         emiDate: billingInfo.emiDate,
         rentedDate,
         rentedTill,
@@ -356,6 +357,15 @@ async function fulfilOrderAfterPayment(orderIdOrInternal) {
   await orderDoc.save().catch((e) =>
     console.error("[fulfilment.service] order update err", e)
   );
+  
+  // 🔗 Link Invoice to all related Payment records for this order
+  if (invoiceDoc) {
+    const Payment = require('../models/payment');
+    await Payment.updateMany(
+      { orderId: orderDoc.orderId },
+      { $set: { invoiceId: invoiceDoc._id } }
+    ).catch(e => console.error("[fulfilment.service] payment invoice update err", e));
+  }
 
   /* 5) clear cart */
   await Cart.findOneAndUpdate(

@@ -15,6 +15,8 @@ const Subscription = require("../../models/subscription");
 
 const verifyToken = require("../../middlewares/verifyToken");
 const razorpay = require("../../services/razorpayClient");
+const { sendWhatsAppCampaign } = require("../../services/aisensy.service");
+const sendEmail = require("../../services/email.service");
 
 /* -------------------------- helpers -------------------------- */
 
@@ -78,9 +80,14 @@ router.post("/", verifyToken, async (req, res) => {
       couponDiscount,
       monthlyAmount,
       documents,
+      targetUserId,
     } = req.body;
 
-    const userId = req.user.userId;
+    let userId = req.user.userId;
+    if (req.user.role && (req.user.role.includes('admin') || req.user.role.toLowerCase().includes('manager')) && targetUserId) {
+      userId = targetUserId;
+    }
+
     if (!userId)
       return res.status(401).json({ message: "Unauthenticated user" });
     if (!items || !Array.isArray(items) || items.length === 0)
@@ -224,6 +231,18 @@ router.post("/", verifyToken, async (req, res) => {
           await newOrder.save();
 
           // ... (keeping previous code unchanged up to the response blocks)
+
+          // Send Notifications for admin-created order (Recurring)
+          if (req.user.role && (req.user.role.includes('admin') || req.user.role.toLowerCase().includes('manager')) && targetUserId) {
+            const customerName = `${billingInfo.firstName} ${billingInfo.lastName || ''}`.trim();
+            const campaignName = process.env.AISENSY_ORDER_PAYMENT_CAMPAIGN || "order_payment_link";
+            
+            // Use the subscription short URL for recurring payments
+            const paymentLink = subscriptionShortUrl;
+            
+            await sendWhatsAppCampaign(billingInfo.phone, campaignName, [customerName, newOrder.orderId, paymentLink], customerName).catch(e => console.log(e));
+            await sendEmail(billingInfo.email, "Complete Your RentBuddy Order Payment", `Hi ${customerName},\n\nYour order ${newOrder.orderId} has been created.\nPlease complete your payment and authorize your mandate here:\n${paymentLink}`).catch(e => console.log(e));
+          }
 
           return res.status(201).json({
             message:
@@ -390,6 +409,34 @@ router.post("/", verifyToken, async (req, res) => {
           await newOrder.save();
         }
 
+        // Send Notifications for admin-created order (Recurring)
+        if (req.user.role && (req.user.role.includes('admin') || req.user.role.toLowerCase().includes('manager')) && targetUserId) {
+          const customerName = `${billingInfo.firstName} ${billingInfo.lastName || ''}`.trim();
+          const campaignName = process.env.AISENSY_ORDER_PAYMENT_CAMPAIGN || "order_payment_link";
+          
+          const mandateLink = subscriptionShortUrl;
+          const upfrontLink = newOrder.oneTimePaymentLink;
+          
+          if (upfrontLink && upfrontLink !== mandateLink) {
+            // Send Step 1: Upfront Payment
+            await sendWhatsAppCampaign(billingInfo.phone, campaignName, [customerName, `${newOrder.orderId} (Step 1: Upfront)`, upfrontLink], customerName).catch(e => console.log(e));
+            // Send Step 2: Mandate Authorization
+            await sendWhatsAppCampaign(billingInfo.phone, campaignName, [customerName, `${newOrder.orderId} (Step 2: Mandate)`, mandateLink], customerName).catch(e => console.log(e));
+          } else {
+            // Just send the one link (Mandate or Payment)
+            const link = mandateLink || upfrontLink;
+            await sendWhatsAppCampaign(billingInfo.phone, campaignName, [customerName, newOrder.orderId, link], customerName).catch(e => console.log(e));
+          }
+
+          // Email still looks good with both steps in one
+          await sendEmail(billingInfo.email, "Complete Your RentBuddy Order Payment", 
+            `Hi ${customerName},\n\nYour order ${newOrder.orderId} has been created.\n\n` +
+            (upfrontLink ? `Step 1: Complete your upfront payment here: ${upfrontLink}\n` : '') +
+            `Step 2: Authorize your auto-pay mandate here: ${mandateLink}\n\n` +
+            `Both steps are required to start your rental.`
+          ).catch(e => console.log(e));
+        }
+
         return res.status(201).json({
           message:
             "Order created: subscription created (pending authorization). First month collected as initial order (if amount > 0).",
@@ -431,12 +478,33 @@ router.post("/", verifyToken, async (req, res) => {
         await newPayment.save();
 
         newOrder.razorpayOrderId = razorpayOrder.id;
-        await newOrder.save();
+        
+        // 🚀 NEW: Generate a Direct Payment Link for Cumulative Payments
+        try {
+          const plink = await razorpay.paymentLink.create({
+            amount: razorpayOrder.amount,
+            currency: "INR",
+            accept_partial: false,
+            description: `Payment for Order ${newOrder.orderId}`,
+            customer: {
+              name: `${billingInfo.firstName} ${billingInfo.lastName}`,
+              email: billingInfo.email,
+              contact: billingInfo.phone,
+            },
+            notify: { sms: false, email: false },
+            reminder_enable: true,
+            notes: {
+              orderId: newOrder.orderId,
+              orderInternalId: newOrder._id.toString(),
+            },
+          });
+          newOrder.oneTimePaymentLink = plink.short_url;
+          console.log("[addOrder] one-time payment link created:", plink.short_url);
+        } catch (linkErr) {
+          console.error("Payment Link creation failed:", linkErr);
+        }
 
-        console.log("[addOrder] one-time razorpay order created:", {
-          id: razorpayOrder.id,
-          amount: razorpayOrder.amount,
-        });
+        await newOrder.save();
       } catch (err) {
         console.error("Razorpay order create error", err);
         return res.status(500).json({
@@ -451,6 +519,18 @@ router.post("/", verifyToken, async (req, res) => {
     const finalOrderInternalId = newOrder._id.toString();
 
     console.log(`[addOrder] Response IDs -> Public: ${finalOrderId}, Internal: ${finalOrderInternalId}`);
+
+    // Send Notifications for admin-created order (one-time cumulative payment)
+    if (req.user.role && (req.user.role.includes('admin') || req.user.role.toLowerCase().includes('manager')) && targetUserId) {
+      const customerName = `${billingInfo.firstName} ${billingInfo.lastName || ''}`.trim();
+      const campaignName = process.env.AISENSY_ORDER_PAYMENT_CAMPAIGN || "order_payment_link";
+      
+      // Use the newly generated one-time payment link
+      const paymentLink = newOrder.oneTimePaymentLink || `https://rentbuddy.in/profile`;
+      
+      await sendWhatsAppCampaign(billingInfo.phone, campaignName, [customerName, finalOrderId, paymentLink], customerName).catch(e => console.log(e));
+      await sendEmail(billingInfo.email, "Complete Your RentBuddy Order Payment", `Hi ${customerName},\n\nYour order ${finalOrderId} has been created.\nPlease complete your payment here:\n${paymentLink}`).catch(e => console.log(e));
+    }
 
     return res.status(201).json({
       success: true,

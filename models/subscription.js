@@ -13,10 +13,11 @@ const subscriptionSchema = new mongoose.Schema({
   startAt: { type: Date },
   nextChargeAt: { type: Date },
   mandateId: { type: String },
+  isMandateAuthorized: { type: Boolean, default: false },
   shortUrl: { type: String },
 
   // App-level status
-  status: { type: String, enum: ['created', 'active', 'past_due', 'expired', 'cancelled', 'halted'], default: 'created' },
+  status: { type: String, enum: ['created', 'authenticated', 'active', 'past_due', 'expired', 'cancelled', 'halted'], default: 'created' },
 
   // Missed payment tracking
   missedPayments: { type: Number, default: 0 },

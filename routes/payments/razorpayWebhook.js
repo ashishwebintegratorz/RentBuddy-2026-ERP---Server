@@ -14,15 +14,16 @@ const { GRACE_DAYS } = require('../../utils/subscriptionStatusHelper');
 const { cancelSubscription: unifiedCancel } = require('../../utils/cancellationHelper');
 
 function deriveInvoiceId(p) {
-  if (!p) return `inv-${Date.now()}`;
-  return (
+  if (!p) return null;
+  const id = (
     p.invoice_id ||
     p.notes?.invoiceId ||
     p.notes?.invoice_id ||
     p.receipt ||
-    p.order_id ||
-    `inv-${Date.now()}`
+    null
   );
+  if (id && mongoose.Types.ObjectId.isValid(id)) return id;
+  return null;
 }
 function deriveOrderId(p) {
   if (!p) return 'unknown';
@@ -114,6 +115,8 @@ async function syncSubscriptionAndRentalDates(subDoc, nextChargeAt) {
       if (rental.paymentsMade >= (rental.totalPaymentsRequired || 0)) {
         rental.rentalStatus = 'completed';
         rental.subscriptionStatus = 'completed';
+      } else {
+        rental.subscriptionStatus = 'active';
       }
       await rental.save();
     }
@@ -154,7 +157,8 @@ router.post('/', async (req, res) => {
     const type = event.event;
     const payload = event.payload || {};
 
-    console.log('[WEBHOOK RECEIVED] =>', type);
+    console.log(`[RAZORPAY WEBHOOK] Received: ${type}`);
+    if (payload.payment_link) console.log(`[RAZORPAY WEBHOOK] Notes:`, payload.payment_link.entity?.notes);
 
     /* ======================= ONE-TIME PAYMENT SUCCESS ======================= */
     // Note: We only process 'payment.captured' to avoid double fulfilment from 'authorized'
@@ -193,17 +197,28 @@ router.post('/', async (req, res) => {
         const isExtension = p.notes?.type === 'extension';
 
         if (noteOrder) {
-          await Order.findOneAndUpdate(
+          const updateData = { 
+            paymentStatus: 'Paid', 
+            status: 'Completed'
+          };
+          if (newPaymentId) {
+            updateData.$addToSet = { paymentIds: newPaymentId };
+          }
+
+          const updatedOrder = await Order.findOneAndUpdate(
             { orderId: noteOrder },
-            { 
-              paymentStatus: 'Paid', 
-              status: 'Completed',
-              $addToSet: { paymentIds: newPaymentId }
-            }
+            updateData,
+            { new: true }
           );
-          // 🚀 Trigger fulfilment from webhook ONLY IF NOT an extension
-          if (!isExtension) {
-            await fulfilOrderAfterPayment(noteOrder);
+          
+          if (updatedOrder) {
+            console.log(`[RAZORPAY WEBHOOK] Successfully updated Order ${updatedOrder.orderId}`);
+            // 🚀 Trigger fulfilment from webhook ONLY IF NOT an extension
+            if (!isExtension) {
+              await fulfilOrderAfterPayment(noteOrder);
+            }
+          } else {
+             console.warn(`[RAZORPAY WEBHOOK] FAILED to find Order ${noteOrder} for update!`);
           }
         } else if (p.order_id) {
           await Order.findOneAndUpdate(
@@ -385,14 +400,27 @@ router.post('/', async (req, res) => {
         }
 
         if (noteOrder) {
-          await Order.findOneAndUpdate(
+          console.log(`[RAZORPAY WEBHOOK] Updating Order ${noteOrder} to Paid/Completed (Payment Link)`);
+          const updateData = { 
+            paymentStatus: 'Paid', 
+            status: 'Completed'
+          };
+          if (newPaymentId) {
+            updateData.$addToSet = { paymentIds: newPaymentId };
+          }
+
+          const updatedOrder = await Order.findOneAndUpdate(
             { orderId: noteOrder },
-            { 
-              paymentStatus: 'Paid', 
-              status: 'Completed',
-              $addToSet: { paymentIds: newPaymentId }
-            }
+            updateData,
+            { new: true }
           );
+          if (updatedOrder) {
+             console.log(`[RAZORPAY WEBHOOK] Successfully updated Order ${updatedOrder.orderId}`);
+             // 🚀 Trigger fulfilment/invoice generation
+             await fulfilOrderAfterPayment(noteOrder);
+          } else {
+             console.warn(`[RAZORPAY WEBHOOK] FAILED to find Order ${noteOrder} for update!`);
+          }
         }
 
         // 🔗 Robust Subscription Lookup
@@ -415,23 +443,27 @@ router.post('/', async (req, res) => {
 
     /* ======================= SUBSCRIPTION CREATE/UPDATE ======================= */
     if (
-      ['subscription.created', 'subscription.activated', 'subscription.updated'].includes(
+      ['subscription.created', 'subscription.activated', 'subscription.authenticated', 'subscription.updated'].includes(
         type
       )
     ) {
       const sub = payload.subscription?.entity;
       if (sub) {
-        const nextChargeAt = sub.next_charge_at
-          ? new Date(sub.next_charge_at * 1000)
+        const nextChargeAt = (sub.next_charge_at || sub.charge_at)
+          ? new Date((sub.next_charge_at || sub.charge_at) * 1000)
           : null;
         const startAt = sub.start_at ? new Date(sub.start_at * 1000) : null;
 
+        const isAuthorized = ['active', 'authenticated'].includes(sub.status);
+        
         await Subscription.findOneAndUpdate(
           { subscriptionId: sub.id },
           {
             $set: {
               subscriptionId: sub.id,
-              status: sub.status === 'active' ? 'active' : sub.status,
+              // Keep as 'created' for future-dated sub until first charge, to avoid breaking cron jobs
+              status: sub.status === 'active' ? 'active' : 'created', 
+              isMandateAuthorized: isAuthorized,
               planId: sub.plan_id,
               planAmount: sub.plan?.item?.amount,
               currency: sub.plan?.item?.currency || 'INR',
@@ -440,12 +472,11 @@ router.post('/', async (req, res) => {
               startAt,
               shortUrl: sub.short_url || sub.shortUrl,
               raw: sub,
-              ...(sub.status === 'active'
+              ...(isAuthorized
                 ? {
                   graceUntil: null,
                   missedPayments: 0,
                   notifiedOnFailure: false,
-                  // 🛡️ Clear stale fallback links on activation/success
                   oneTimePaymentLink: null,
                   oneTimePaymentLinkId: null,
                 }
@@ -471,11 +502,13 @@ router.post('/', async (req, res) => {
           }
         }
 
-        if (sub.status === 'active' && sub.notes?.orderId) {
-          await Order.findOneAndUpdate(
-            { orderId: sub.notes.orderId },
-            { paymentStatus: 'Active', status: 'Processing' }
-          );
+        if (['active', 'authenticated'].includes(sub.status) && sub.notes?.orderId) {
+          const orderToUpdate = await Order.findOne({ orderId: sub.notes.orderId });
+          if (orderToUpdate) {
+            orderToUpdate.paymentStatus = 'Active';
+            orderToUpdate.status = 'Completed'; // Straight to Completed
+            await orderToUpdate.save();
+          }
         }
       }
     }

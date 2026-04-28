@@ -14,6 +14,9 @@ const customerInfo = require('./customerInfo');
 const { getCustomerStats } = require('./customerStatistics');
 const updateQueryStatus = require('./updateQueryStatus');
 const deleteQuery = require('./deleteQuery');
+const adminCreateCustomer = require('./adminCreateCustomer');
+
+router.use('/admin/create', adminCreateCustomer);
 
 router.use('/deleteQuery', deleteQuery);
 
